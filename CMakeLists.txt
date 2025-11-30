@@ -1,36 +1,23 @@
-cmake_minimum_required(VERSION 3.16)
-project(opcua_project VERSION 1.0.0 LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.14)
+project(OpcUaExpertPractice LANGUAGES CXX C)
 
-# C++ Standard
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Output directories
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/lib)
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/lib)
+# --- 1. Fetch open62541 (The Engine) ---
+include(FetchContent)
+FetchContent_Declare(
+    open62541
+    GIT_REPOSITORY https://github.com/open62541/open62541.git
+    GIT_TAG        v1.4.3  # Stable release
+)
 
-# Include directories
-include_directories(${CMAKE_SOURCE_DIR}/include)
+# Enable full Namespace 0 (Standard nodes) so we can use standard types
+set(UA_NAMESPACE_ZERO "FULL" CACHE STRING "" FORCE)
+FetchContent_MakeAvailable(open62541)
 
-# Source files
-file(GLOB_RECURSE SOURCES "src/*.cpp")
+# --- 2. Build Your Executable ---
+add_executable(opcua_server src/main.cpp)
 
-# Main executable
-add_executable(opcua_app ${SOURCES})
-
-# Optional: Find and link open62541 library for OPC UA
-# find_package(open62541 REQUIRED)
-# target_link_libraries(opcua_app open62541::open62541)
-
-# Compiler warnings
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(opcua_app PRIVATE -Wall -Wextra -Wpedantic)
-elseif(MSVC)
-    target_compile_options(opcua_app PRIVATE /W4)
-endif()
-
-# Enable testing
-enable_testing()
-add_subdirectory(tests EXCLUDE_FROM_ALL)
+# Link the library
+target_link_libraries(opcua_server PRIVATE open62541::open62541)
+target_include_directories(opcua_server PRIVATE ${CMAKE_SOURCE_DIR}/include)
