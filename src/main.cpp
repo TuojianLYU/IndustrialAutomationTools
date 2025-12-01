@@ -8,14 +8,26 @@
  * 3. Methods for Control (Start/Stop machines)
  * 4. Multiple Data Types
  * 5. Machine States (Enum-like)
+ *
+ * Usage:
+ *   ./opcua_server              - Use static code implementation
+ *   ./opcua_server --xml <file> - Load information model from NodeSet XML
+ *   ./opcua_server --help       - Show usage
  */
 
 #include "open62541/plugin/log_stdout.h"
 #include "open62541/server.h"
 #include "open62541/server_config_default.h"
+
+#ifdef UA_ENABLE_NODESETLOADER
+#include "open62541/plugin/nodesetloader.h"
+#endif
+
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <signal.h>
+#include <string>
 
 // ============================================================================
 // MACHINE STATES (Simulating an Enum)
@@ -335,20 +347,9 @@ UA_NodeId createMachineInstance(UA_Server *server, UA_NodeId parentId,
 }
 
 // ============================================================================
-// MAIN
+// STATIC MODEL BUILDER (Original implementation)
 // ============================================================================
-int main() {
-  signal(SIGINT, stopHandler);
-  signal(SIGTERM, stopHandler);
-
-  UA_Server *server = UA_Server_new();
-  UA_ServerConfig *config = UA_Server_getConfig(server);
-  UA_ServerConfig_setMinimal(config, 4840, NULL);
-
-  std::cout << "\n========================================" << std::endl;
-  std::cout << "  OPC UA Manufacturing Cell Demo" << std::endl;
-  std::cout << "========================================\n" << std::endl;
-
+void buildStaticModel(UA_Server *server) {
   // =========================================
   // PHASE 1: Define the Information Model (Types)
   // =========================================
@@ -376,9 +377,114 @@ int main() {
   createMachineInstance(server, cell2, robotType, "AssemblyRobot_01");
   createMachineInstance(server, cell2, robotType, "AssemblyRobot_02");
   createMachineInstance(server, cell2, conveyorType, "AssemblyLine_01");
+}
+
+// ============================================================================
+// XML NODESET LOADER
+// ============================================================================
+bool loadNodesetFromXml(UA_Server *server, const std::string &xmlPath) {
+  // Check if file exists
+  std::ifstream file(xmlPath);
+  if (!file.good()) {
+    std::cerr << "❌ Error: Cannot open XML file: " << xmlPath << std::endl;
+    return false;
+  }
+  file.close();
+
+#ifdef UA_ENABLE_NODESETLOADER
+  std::cout << "📄 Loading NodeSet from XML: " << xmlPath << std::endl;
+
+  UA_StatusCode retval = UA_Server_loadNodeset(server, xmlPath.c_str(), NULL);
+  if (retval != UA_STATUSCODE_GOOD) {
+    std::cerr << "❌ Error loading nodeset: " << UA_StatusCode_name(retval)
+              << std::endl;
+    return false;
+  }
+
+  std::cout << "✅ NodeSet loaded successfully from XML!" << std::endl;
+  return true;
+#else
+  std::cerr << "❌ Error: NodeSet loader not enabled!" << std::endl;
+  std::cerr << "   Rebuild open62541 with UA_ENABLE_NODESETLOADER=ON"
+            << std::endl;
+  std::cerr << "   Or use the static code implementation instead." << std::endl;
+  return false;
+#endif
+}
+
+// ============================================================================
+// USAGE HELP
+// ============================================================================
+void printUsage(const char *progName) {
+  std::cout << "\nUsage: " << progName << " [OPTIONS]\n" << std::endl;
+  std::cout << "Options:" << std::endl;
+  std::cout << "  (no args)         Use static code implementation (default)"
+            << std::endl;
+  std::cout
+      << "  --xml <file>      Load information model from NodeSet XML file"
+      << std::endl;
+  std::cout << "  --help, -h        Show this help message\n" << std::endl;
+  std::cout << "Examples:" << std::endl;
+  std::cout << "  " << progName << std::endl;
+  std::cout << "  " << progName << " --xml /path/to/NodeSet.xml\n" << std::endl;
+}
+
+// ============================================================================
+// MAIN
+// ============================================================================
+int main(int argc, char *argv[]) {
+  signal(SIGINT, stopHandler);
+  signal(SIGTERM, stopHandler);
+
+  // Parse command-line arguments
+  std::string xmlPath;
+  bool useXml = false;
+
+  for (int i = 1; i < argc; i++) {
+    std::string arg = argv[i];
+    if (arg == "--help" || arg == "-h") {
+      printUsage(argv[0]);
+      return EXIT_SUCCESS;
+    } else if (arg == "--xml") {
+      if (i + 1 < argc) {
+        xmlPath = argv[++i];
+        useXml = true;
+      } else {
+        std::cerr << "❌ Error: --xml requires a file path argument"
+                  << std::endl;
+        printUsage(argv[0]);
+        return EXIT_FAILURE;
+      }
+    } else {
+      std::cerr << "❌ Unknown option: " << arg << std::endl;
+      printUsage(argv[0]);
+      return EXIT_FAILURE;
+    }
+  }
+
+  // Create server
+  UA_Server *server = UA_Server_new();
+  UA_ServerConfig *config = UA_Server_getConfig(server);
+  UA_ServerConfig_setMinimal(config, 4840, NULL);
+
+  std::cout << "\n========================================" << std::endl;
+  std::cout << "  OPC UA Manufacturing Cell Demo" << std::endl;
+  std::cout << "========================================\n" << std::endl;
+
+  // Build information model based on mode
+  if (useXml) {
+    std::cout << "🔧 Mode: XML NodeSet Loading\n" << std::endl;
+    if (!loadNodesetFromXml(server, xmlPath)) {
+      UA_Server_delete(server);
+      return EXIT_FAILURE;
+    }
+  } else {
+    std::cout << "🔧 Mode: Static Code Implementation\n" << std::endl;
+    buildStaticModel(server);
+  }
 
   // =========================================
-  // PHASE 3: Run Server
+  // Run Server
   // =========================================
   std::cout << "\n========================================" << std::endl;
   std::cout << "🚀 Server running at opc.tcp://localhost:4840" << std::endl;
@@ -386,7 +492,10 @@ int main() {
   std::cout << "\n📊 Browse the address space to see:" << std::endl;
   std::cout << "   - Type hierarchy under 'Types → ObjectTypes'" << std::endl;
   std::cout << "   - Instances under 'Objects → Cell_*'" << std::endl;
-  std::cout << "   - Try calling Start/Stop methods!\n" << std::endl;
+  if (!useXml) {
+    std::cout << "   - Try calling Start/Stop methods!" << std::endl;
+  }
+  std::cout << std::endl;
 
   UA_StatusCode retval = UA_Server_run(server, &running);
 
