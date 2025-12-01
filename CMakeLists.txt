@@ -1,32 +1,32 @@
 cmake_minimum_required(VERSION 3.14)
-project(OpcUaExpertPractice LANGUAGES CXX C)
+project(ModbusTcpPractice LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# --- 1. Fetch open62541 (The Engine) ---
-include(FetchContent)
-FetchContent_Declare(
-    open62541
-    GIT_REPOSITORY https://github.com/open62541/open62541.git
-    GIT_TAG        v1.4.3  # Stable release
-)
+# Generate compile_commands.json for IDE IntelliSense
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Enable full Namespace 0 (Standard nodes) so we can use standard types
-set(UA_NAMESPACE_ZERO "FULL" CACHE STRING "" FORCE)
+# =============================================================================
+# Find libmodbus using pkg-config
+# =============================================================================
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(MODBUS REQUIRED libmodbus)
 
-# Enable NodeSet XML loader for loading information models from XML files
-set(UA_ENABLE_NODESETLOADER ON CACHE BOOL "" FORCE)
+message(STATUS "Found libmodbus version: ${MODBUS_VERSION}")
+message(STATUS "  Include dirs: ${MODBUS_INCLUDE_DIRS}")
+message(STATUS "  Libraries: ${MODBUS_LIBRARIES}")
 
-FetchContent_MakeAvailable(open62541)
+# =============================================================================
+# Modbus TCP Server
+# =============================================================================
+add_executable(modbus_server src/server.cpp)
+target_include_directories(modbus_server PRIVATE ${MODBUS_INCLUDE_DIRS})
+target_link_libraries(modbus_server PRIVATE ${MODBUS_LIBRARIES})
 
-# --- 2. Build Your Executable ---
-add_executable(opcua_server src/main.cpp)
-
-# Link the library
-target_link_libraries(opcua_server PRIVATE open62541::open62541)
-target_include_directories(opcua_server PRIVATE ${CMAKE_SOURCE_DIR}/include)
-
-# Pass the nodesetloader flag to our code
-if(UA_ENABLE_NODESETLOADER)
-    target_compile_definitions(opcua_server PRIVATE UA_ENABLE_NODESETLOADER)
-endif()
+# =============================================================================
+# Modbus TCP Client
+# =============================================================================
+add_executable(modbus_client src/client.cpp)
+target_include_directories(modbus_client PRIVATE ${MODBUS_INCLUDE_DIRS})
+target_link_libraries(modbus_client PRIVATE ${MODBUS_LIBRARIES})
